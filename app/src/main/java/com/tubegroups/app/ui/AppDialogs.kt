@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,12 +17,14 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -161,38 +164,77 @@ internal fun AssignGroupsDialog(
     channel: Channel,
     groups: List<ChannelGroup>,
     onDismiss: () -> Unit,
+    onCreateGroup: (String, String) -> Unit,
     onConfirm: (List<String>) -> Unit
 ) {
-    val selectedIds = remember(channel) {
+    val selectedIds = remember(channel.id) {
         mutableStateListOf<String>().apply { addAll(channel.groupIds) }
+    }
+    var newGroupName by remember { mutableStateOf("") }
+    var pendingAutoSelect by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(groups) {
+        val pending = pendingAutoSelect
+        if (pending != null) {
+            val match = groups.lastOrNull { it.name.equals(pending, ignoreCase = true) }
+            if (match != null && match.id !in selectedIds) {
+                selectedIds.add(match.id)
+                pendingAutoSelect = null
+            }
+        }
     }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Grupos de ${channel.title}") },
         text = {
-            if (groups.isEmpty()) {
-                Text("Crie um grupo na aba 'Grupos' primeiro.")
-            } else {
-                Column {
-                    groups.forEach { group ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    if (group.id in selectedIds) selectedIds.remove(group.id)
-                                    else selectedIds.add(group.id)
-                                }
-                        ) {
-                            Checkbox(
-                                checked = group.id in selectedIds,
-                                onCheckedChange = { checked ->
-                                    if (checked) selectedIds.add(group.id) else selectedIds.remove(group.id)
-                                }
-                            )
-                            Text("${group.emoji} ${group.name}")
+            Column {
+                groups.forEach { group ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                if (group.id in selectedIds) selectedIds.remove(group.id)
+                                else selectedIds.add(group.id)
+                            }
+                    ) {
+                        Checkbox(
+                            checked = group.id in selectedIds,
+                            onCheckedChange = { checked ->
+                                if (checked) selectedIds.add(group.id) else selectedIds.remove(group.id)
+                            }
+                        )
+                        Text("${group.emoji} ${group.name}")
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    OutlinedTextField(
+                        value = newGroupName,
+                        onValueChange = { newGroupName = it },
+                        label = { Text("Criar novo grupo") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    TextButton(
+                        enabled = newGroupName.isNotBlank(),
+                        onClick = {
+                            val clean = newGroupName.trim()
+                            pendingAutoSelect = clean
+                            onCreateGroup(clean, "📁")
+                            newGroupName = ""
                         }
+                    ) {
+                        Text("Criar")
                     }
                 }
             }
