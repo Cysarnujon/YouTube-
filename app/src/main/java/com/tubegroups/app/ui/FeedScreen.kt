@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -54,6 +55,7 @@ internal fun FeedScreen(
     onToggleHideWatched: () -> Unit,
     onOpenVideo: (VideoItem) -> Unit,
     onToggleWatched: (VideoItem) -> Unit,
+    onAssignChannelToGroups: (VideoItem) -> Unit,
     onGoToChannels: () -> Unit
 ) {
     val selectedGroupId = state.selectedGroupId
@@ -63,6 +65,10 @@ internal fun FeedScreen(
             "ungrouped" -> state.channels.filter { it.groupIds.isEmpty() }.map { it.id }.toSet()
             else -> state.channels.filter { selectedGroupId in it.groupIds }.map { it.id }.toSet()
         }
+    }
+
+    val groupedChannelIds = remember(state.channels) {
+        state.channels.filter { it.groupIds.isNotEmpty() }.map { it.id }.toSet()
     }
 
     val filteredVideos = remember(
@@ -191,11 +197,14 @@ internal fun FeedScreen(
             ) {
                 items(filteredVideos, key = { it.id }) { video ->
                     val watched = video.id in state.watchedIds
+                    val hasGroup = video.channelId in groupedChannelIds
                     VideoCard(
                         video = video,
                         isWatched = watched,
+                        channelHasGroup = hasGroup,
                         onClick = { onOpenVideo(video) },
-                        onToggleWatched = { onToggleWatched(video) }
+                        onToggleWatched = { onToggleWatched(video) },
+                        onAssignGroups = { onAssignChannelToGroups(video) }
                     )
                 }
             }
@@ -207,8 +216,10 @@ internal fun FeedScreen(
 private fun VideoCard(
     video: VideoItem,
     isWatched: Boolean,
+    channelHasGroup: Boolean,
     onClick: () -> Unit,
-    onToggleWatched: () -> Unit
+    onToggleWatched: () -> Unit,
+    onAssignGroups: () -> Unit
 ) {
     Card(
         modifier = Modifier
@@ -268,6 +279,13 @@ private fun VideoCard(
                         text = "${video.channelTitle} • ${video.publishedLabel}",
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.Gray
+                    )
+                }
+                IconButton(onClick = onAssignGroups) {
+                    Icon(
+                        imageVector = Icons.Default.Folder,
+                        contentDescription = "Adicionar canal ao grupo",
+                        tint = if (channelHasGroup) MaterialTheme.colorScheme.secondary else Color.Gray
                     )
                 }
                 IconButton(onClick = onToggleWatched) {
