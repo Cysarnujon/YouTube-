@@ -1,10 +1,8 @@
 package com.tubegroups.app.ui
 
-import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -74,7 +72,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -108,13 +105,13 @@ fun TubeGroupsTheme(content: @Composable () -> Unit) {
 @Composable
 fun TubeGroupsApp(viewModel: MainViewModel = viewModel()) {
     val state by viewModel.uiState.collectAsState()
-    val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
 
     var currentTab by remember { mutableIntStateOf(0) }
     var showAddChannelDialog by remember { mutableStateOf(false) }
     var showCreateGroupDialog by remember { mutableStateOf(false) }
     var editingChannel by remember { mutableStateOf<Channel?>(null) }
+    var activeVideo by remember { mutableStateOf<VideoItem?>(null) }
 
     val csvLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -130,6 +127,23 @@ fun TubeGroupsApp(viewModel: MainViewModel = viewModel()) {
             snackbarHostState.showSnackbar(msg)
             viewModel.clearMessage()
         }
+    }
+
+    val currentPlaying = activeVideo
+    if (currentPlaying != null) {
+        val upNext = remember(state.videos, currentPlaying.id) {
+            state.videos.filter { it.id != currentPlaying.id }.take(20)
+        }
+        VideoPlayerScreen(
+            video = currentPlaying,
+            upNextVideos = upNext,
+            onSelectVideo = { nextVideo ->
+                viewModel.markVideoWatched(nextVideo.id)
+                activeVideo = nextVideo
+            },
+            onClose = { activeVideo = null }
+        )
+        return
     }
 
     Scaffold(
@@ -213,8 +227,7 @@ fun TubeGroupsApp(viewModel: MainViewModel = viewModel()) {
                     onToggleHideWatched = viewModel::toggleHideWatched,
                     onOpenVideo = { video ->
                         viewModel.markVideoWatched(video.id)
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(video.url))
-                        context.startActivity(intent)
+                        activeVideo = video
                     },
                     onToggleWatched = { video -> viewModel.toggleVideoWatched(video.id) },
                     onGoToChannels = { currentTab = 1 }
@@ -320,7 +333,6 @@ private fun FeedScreen(
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         }
 
-        // Barra de busca
         OutlinedTextField(
             value = state.searchQuery,
             onValueChange = onSearchChange,
@@ -340,7 +352,6 @@ private fun FeedScreen(
             shape = RoundedCornerShape(12.dp)
         )
 
-        // Chips de Grupos (estilo PocketTube)
         LazyRow(
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -368,7 +379,6 @@ private fun FeedScreen(
             }
         }
 
-        // Filtros rápidos
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -504,323 +514,3 @@ private fun VideoCard(
                         color = Color.Gray
                     )
                 }
-                IconButton(onClick = onToggleWatched) {
-                    Icon(
-                        imageVector = Icons.Default.CheckCircle,
-                        contentDescription = "Marcar como assistido",
-                        tint = if (isWatched) MaterialTheme.colorScheme.secondary else Color.DarkGray
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ChannelsScreen(
-    channels: List<Channel>,
-    groups: List<ChannelGroup>,
-    onEditGroups: (Channel) -> Unit,
-    onDeleteChannel: (Channel) -> Unit,
-    onImportCsv: () -> Unit,
-    onAddChannel: () -> Unit
-) {
-    val groupMap = remember(groups) { groups.associateBy { it.id } }
-
-    Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedButton(
-                onClick = onImportCsv,
-                modifier = Modifier.weight(1f)
-            ) {
-                Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Importar CSV")
-            }
-            Button(
-                onClick = onAddChannel,
-                modifier = Modifier.weight(1f)
-            ) {
-                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Novo Canal")
-            }
-        }
-
-        if (channels.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    text = "Toque em 'Novo Canal' ou importe seu subscriptions.csv.",
-                    color = Color.Gray,
-                    modifier = Modifier.padding(24.dp)
-                )
-            }
-        } else {
-            LazyColumn(
-              contentPadding = PaddingValues(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(channels, key = { it.id }) { channel ->
-                    val groupBadges = channel.groupIds.mapNotNull { groupMap[it] }
-                        .joinToString("  ") { "${it.emoji} ${it.name}" }
-
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onEditGroups(channel) }
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(channel.title, fontWeight = FontWeight.Medium)
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = groupBadges.ifEmpty { "Sem grupo • toque para organizar" },
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = if (groupBadges.isEmpty()) Color.Gray else MaterialTheme.colorScheme.secondary
-                                )
-                            }
-                            IconButton(onClick = { onDeleteChannel(channel) }) {
-                                Icon(Icons.Default.Delete, contentDescription = "Remover", tint = Color.Gray)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun GroupsScreen(
-    groups: List<ChannelGroup>,
-    channels: List<Channel>,
-    onDeleteGroup: (ChannelGroup) -> Unit,
-    onSelectGroupAndOpenFeed: (String) -> Unit
-) {
-    if (groups.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("Nenhum grupo criado. Toque no + para criar.", color = Color.Gray)
-        }
-    } else {
-      LazyColumn(
-            contentPadding = PaddingValues(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(groups, key = { it.id }) { group ->
-                val count = channels.count { group.id in it.groupIds }
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onSelectGroupAndOpenFeed(group.id) }
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(group.emoji, fontSize = 24.sp)
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(group.name, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                text = "$count canais",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color.Gray
-                            )
-                        }
-                        IconButton(onClick = { onDeleteGroup(group) }) {
-                            Icon(Icons.Default.Delete, contentDescription = "Excluir grupo", tint = Color.Gray)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun AddChannelDialog(
-    groups: List<ChannelGroup>,
-    isLoading: Boolean,
-    onDismiss: () -> Unit,
-    onConfirm: (String, List<String>) -> Unit
-) {
-    var input by remember { mutableStateOf("") }
-    val selectedIds = remember { mutableStateListOf<String>() }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Adicionar canal") },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = input,
-                    onValueChange = { input = it },
-                    label = { Text("@handle, URL ou ID (UC...)") },
-                    placeholder = { Text("Ex: @manualdomundo") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                if (groups.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text("Adicionar aos grupos:", style = MaterialTheme.typography.labelLarge)
-                    groups.forEach { group ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    if (group.id in selectedIds) selectedIds.remove(group.id)
-                                    else selectedIds.add(group.id)
-                                }
-                        ) {
-                            Checkbox(
-                                checked = group.id in selectedIds,
-                                onCheckedChange = { checked ->
-                                    if (checked) selectedIds.add(group.id) else selectedIds.remove(group.id)
-                                }
-                            )
-                            Text("${group.emoji} ${group.name}")
-                        }
-                    }
-                }
-                if (isLoading) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                enabled = input.isNotBlank() && !isLoading,
-                onClick = { onConfirm(input, selectedIds.toList()) }
-            ) {
-                Text("Adicionar")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancelar") }
-        }
-    )
-}
-
-@Composable
-private fun CreateGroupDialog(
-    onDismiss: () -> Unit,
-    onConfirm: (String, String) -> Unit
-) {
-    val emojis = listOf("📁", "💻", "🎮", "🎵", "🎬", "⚽", "📰", "💡", "🚀", "📚")
-    var name by remember { mutableStateOf("") }
-    var selectedEmoji by remember { mutableStateOf("📁") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Novo grupo") },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Nome do grupo") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(emojis) { emoji ->
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (emoji == selectedEmoji)
-                                MaterialTheme.colorScheme.primary
-                            else
-                                MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier.clickable { selectedEmoji = emoji }
-                        ) {
-                            Text(
-                                text = emoji,
-                                fontSize = 20.sp,
-                                modifier = Modifier.padding(8.dp)
-                            )
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                enabled = name.isNotBlank(),
-                onClick = { onConfirm(name, selectedEmoji) }
-            ) {
-                Text("Criar")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancelar") }
-        }
-    )
-}
-
-@Composable
-private fun AssignGroupsDialog(
-    channel: Channel,
-    groups: List<ChannelGroup>,
-    onDismiss: () -> Unit,
-    onConfirm: (List<String>) -> Unit
-) {
-    val selectedIds = remember(channel) {
-        mutableStateListOf<String>().apply { addAll(channel.groupIds) }
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Grupos de ${channel.title}") },
-        text = {
-            if (groups.isEmpty()) {
-                Text("Crie um grupo na aba 'Grupos' primeiro.")
-            } else {
-                Column {
-                    groups.forEach { group ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    if (group.id in selectedIds) selectedIds.remove(group.id)
-                                    else selectedIds.add(group.id)
-                                }
-                        ) {
-                            Checkbox(
-                                checked = group.id in selectedIds,
-                                onCheckedChange = { checked ->
-                                    if (checked) selectedIds.add(group.id) else selectedIds.remove(group.id)
-                                }
-                            )
-                            Text("${group.emoji} ${group.name}")
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(onClick = { onConfirm(selectedIds.toList()) }) {
-                Text("Salvar")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancelar") }
-        }
-    )
-}
