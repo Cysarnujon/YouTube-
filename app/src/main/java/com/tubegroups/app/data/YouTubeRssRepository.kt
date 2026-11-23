@@ -5,12 +5,15 @@ import com.tubegroups.app.model.Channel
 import com.tubegroups.app.model.VideoItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 import org.xmlpull.v1.XmlPullParser
 import java.io.BufferedReader
 import java.io.InputStream
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 import java.time.Duration
 import java.time.Instant
 import java.time.OffsetDateTime
@@ -76,12 +79,10 @@ class YouTubeRssRepository {
             var insideEntry = false
             while (event != XmlPullParser.END_DOCUMENT) {
                 val name = parser.name?.substringAfterLast(':')
-                when (event) {
-                    XmlPullParser.START_TAG -> {
-                        if (name == "entry") insideEntry = true
-                        if (!insideEntry && name == "title") {
-                            return parser.nextText().trim()
-                        }
+                if (event == XmlPullParser.START_TAG) {
+                    if (name == "entry") insideEntry = true
+                    if (!insideEntry && name == "title") {
+                        return parser.nextText().trim()
                     }
                 }
                 event = parser.next()
@@ -174,6 +175,92 @@ class YouTubeRssRepository {
         videos
     }
 
+    suspend fun fetchRelatedVideos(titleQuery: String, excludeVideoId: String): List<VideoItem> =
+        withContext(Dispatchers.IO) {
+            try {
+                val cleaned = titleQuery
+                    .replace(Regex("""[^\p{L}\p{N}\s]"""), " ")
+                    .split(Regex("""\s+"""))
+                    .filter { it.length >= 3 }
+                    .take(6)
+                    .joinToString(" ")
+                    .ifBlank { titleQuery }
+
+                val encoded = URLEncoder.encode(cleaned, "UTF-8")
+                val html = httpGet("https://www.youtube.com/results?search_query=$encoded")
+                    ?: return@withContext emptyList()
+
+                val marker = "var ytInitialData = "
+                val start = html.indexOf(marker)
+                if (start < 0) return@withContext emptyList()
+                val end = html.indexOf(";</script>", start + marker.length)
+                if (end < 0) return@withContext emptyList()
+
+                val json = JSONObject(html.substring(start + marker.length, end))
+                val results = mutableListOf<VideoItem>()
+                collectVideoRenderers(json, results, excludeVideoId, limit = 15)
+                results
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
+
+    private fun collectVideoRenderers(
+        node: Any?,
+        out: MutableList<VideoItem>,
+        excludeId: String,
+        limit: Int
+    ) {
+        if (out.size >= limit || node == null) return
+        when (node) {
+            is JSONObject -> {
+                val vr = node.optJSONObject("videoRenderer")
+                if (vr != null) {
+                    val id = vr.optString("videoId", "")
+                    val title = vr.optJSONObject("title")
+                        ?.optJSONArray("runs")
+                        ?.optJSONObject(0)
+                        ?.optString("text", "") ?: ""
+                    val ownerRun = vr.optJSONObject("ownerText")
+                        ?.optJSONArray("runs")
+                        ?.optJSONObject(0)
+                    val channel = ownerRun?.optString("text", "") ?: ""
+                    val channelId = ownerRun?.optJSONObject("navigationEndpoint")
+                        ?.optJSONObject("browseEndpoint")
+                        ?.optString("browseId", "") ?: ""
+                    val published = vr.optJSONObject("publishedTimeText")
+                        ?.optString("simpleText", "") ?: ""
+
+                    if (id.length == 11 && id != excludeId && title.isNotBlank() && out.none { it.id == id }) {
+                        out.add(
+                            VideoItem(
+                                id = id,
+                                channelId = channelId,
+                                channelTitle = channel.ifBlank { "YouTube" },
+                                title = title,
+                                url = "https://www.youtube.com/watch?v=$id",
+                                thumbnailUrl = "https://i.ytimg.com/vi/$id/hqdefault.jpg",
+                                publishedAtEpochMillis = 0L,
+                                publishedLabel = published.ifBlank { "Relacionado" },
+                                isShort = false
+                            )
+                        )
+                    }
+                }
+                val keys = node.keys()
+                while (keys.hasNext() && out.size < limit) {
+                    collectVideoRenderers(node.opt(keys.next()), out, excludeId, limit)
+                }
+            }
+            is JSONArray -> {
+                for (i in 0 until node.length()) {
+                    if (out.size >= limit) break
+                    collectVideoRenderers(node.opt(i), out, excludeId, limit)
+                }
+            }
+        }
+    }
+
     fun parseTakeoutCsv(inputStream: InputStream): List<Channel> {
         val channels = mutableListOf<Channel>()
         val reader = BufferedReader(InputStreamReader(inputStream))
@@ -231,7 +318,7 @@ class YouTubeRssRepository {
                 instanceFollowRedirects = true
                 setRequestProperty(
                     "User-Agent",
-                    "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Mobile Safari/537.36"
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
                 )
                 setRequestProperty("Accept-Language", "pt-BR,pt;q=0.9,en;q=0.8")
             }
