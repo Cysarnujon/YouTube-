@@ -97,6 +97,8 @@ fun TubeGroupsApp(viewModel: MainViewModel = viewModel()) {
         VideoPlayerScreen(
             video = currentPlaying,
             upNextVideos = upNext,
+            allVideos = state.videos,
+            channels = state.channels,
             onSelectVideo = { nextVideo ->
                 viewModel.markVideoWatched(nextVideo.id)
                 activeVideo = nextVideo
