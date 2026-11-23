@@ -1,0 +1,25 @@
+.github/
+  workflows/
+    build-apk.yml
+gradle/
+  libs.versions.toml
+app/
+  build.gradle.kts
+  proguard-rules.pro
+  src/
+    main/
+      AndroidManifest.xml
+      res/
+        values/
+          strings.xml
+          themes.xml
+      java/com/tubegroups/app/
+        MainActivity.kt
+        model/Models.kt
+        data/LocalStore.kt
+        data/YouTubeRssRepository.kt
+        ui/MainViewModel.kt
+        ui/TubeGroupsApp.kt
+build.gradle.kts
+settings.gradle.kts
+gradle.properties
