@@ -52,4 +52,5 @@ dependencies {
     implementation(libs.androidx.material.icons.extended)
     implementation(libs.coil.compose)
     implementation(libs.kotlinx.coroutines.android)
+implementation("com.pierfrancescosoffritti.androidyoutubeplayer:core:13.1.0")
 }
